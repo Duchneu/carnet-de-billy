@@ -1,6 +1,8 @@
-# Carnet de Billy
+# Carnet de Billy : feuille d’aventure pour Les Aventures du Pyro-Barbare et de Billy
 
-Application compagnon pour les livres-jeux *Les Aventures du Pyro-Barbare et de Billy*, tomes 1 à 3. Elle remplace la feuille d’aventure : fiche de Billy, sac, dés, combats et notes. Le livre reste indispensable pour jouer : l’application ne contient aucun texte des livres.
+Application compagnon gratuite pour les livres-jeux *Les Aventures du Pyro-Barbare et de Billy* de Bob Lennon et David Kuhn : *La Forteresse du Chaudron Noir* (tome 1), *La Corne des Sables d’Ivoire* (tome 2) et *La Lance de Valkar* (tome 3). Elle remplace la feuille d’aventure : fiche de Billy, sac, dés, combats et notes. Le livre reste indispensable pour jouer : l’application ne contient aucun texte des livres.
+
+![Carnet de Billy](og-image.jpg)
 
 ## Télécharger
 
