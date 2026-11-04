@@ -1,0 +1,6 @@
+# Fichiers à ne jamais publier
+*.jks
+*.keystore
+*cle*.zip
+*.apk
+.DS_Store
