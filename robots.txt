@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://duchneu.github.io/carnet-de-billy/sitemap.xml
