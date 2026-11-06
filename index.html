@@ -581,6 +581,13 @@ nav.tabs{background:#462B1F var(--img-leather-up) center top/cover no-repeat;bor
 .c-sp{display:block;min-width:36px}
 .pick-list{display:grid;gap:6px;margin:8px 0 4px}
 .item-x{width:100%;margin-top:4px;min-height:38px;font-size:14px;justify-content:space-between;border-style:dashed}
+.upd-banner{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:8px 10px 8px 14px;border-radius:10px;border:1px solid var(--rule);border-left:4px solid var(--pumpkin);background:var(--sheet-a);font-weight:600}
+.upd-banner span{flex:1}
+.upd-banner .btn{min-height:38px}
+#postTxt{width:100%;font:15px/1.4 inherit;color:var(--ink);background:var(--sunk);border:1px solid var(--rule);border-radius:8px;padding:8px}
+#reportTxt{width:100%;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;color:var(--ink);background:var(--sunk);border:1px solid var(--rule);border-radius:8px;padding:8px}
+.card-img{display:block;width:100%;height:auto;border-radius:10px;margin:8px 0;box-shadow:0 4px 14px rgba(40,20,5,.25)}
+.bil-title{font-size:38px}
 </style>
 </head>
 <body>
@@ -805,7 +812,7 @@ function badges(m){
 
 /* ---------- État ---------- */
 const LS='fdcn-carnet-v1',LS_TAB='fdcn-carnet-tab';
-function freshParty(tome){return{id:uid(),tome:TOMES[tome]?tome:'fdcn',createdAt:Date.now(),billy:null,inventory:[],para:1,history:[],notes:'',combat:null,rolls:[],saves:[],achievements:[]};}
+function freshParty(tome){return{id:uid(),tome:TOMES[tome]?tome:'fdcn',createdAt:Date.now(),billy:null,inventory:[],para:1,history:[],notes:'',combat:null,rolls:[],saves:[],achievements:[],endings:[],journal:{}};}
 function migrateParty(s){
   if(!s||typeof s!=='object')s=freshParty('fdcn');
   if(!s.id)s.id=uid();
@@ -820,7 +827,8 @@ function migrateParty(s){
     if('gloire' in b){b.counters.gloire=int(b.gloire);delete b.gloire;}
     if('richesse' in b){b.counters.richesse=int(b.richesse);delete b.richesse;}
   }
-  ['inventory','history','rolls','saves','achievements'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
+  ['inventory','history','rolls','saves','achievements','endings'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
+  if(!s.journal||typeof s.journal!=='object')s.journal={};
   if(typeof s.notes!=='string')s.notes='';
   if(!s.paraNotes||typeof s.paraNotes!=='object')s.paraNotes={};
   /* Points de sauvegarde : un nom modifiable, et les circonstances (§, PV, Chance) à part. */
@@ -848,6 +856,7 @@ function migrateRoot(o){
   if(!r.parties.some(p=>p.id===r.active))r.active=null;
   r.cfg=Object.assign({},CFG_DEFAULT,(o&&o.cfg)||{});
   r.customTomes=o&&Array.isArray(o.customTomes)?o.customTomes:[];
+  r.endings=o&&o.endings&&typeof o.endings==='object'?o.endings:{};
   return r;
 }
 /* Dans l'application Android, la partie est aussi écrite dans un fichier de l'application (pont BillyAndroid). */
@@ -914,7 +923,7 @@ function statsFor(items,adj,inv,cumul,T=prof(),extra={}){
   return {t,raw,part,cls,pvBonus,inactive:hi.inactive,hands:hi,bonusNotes};
 }
 const stats=()=>statsFor(S.billy.items,S.billy.adj,S.inventory,S.billy.cumul,prof(),{held:S.billy.held,veteran:S.billy.veteran,counters:S.billy.counters,twoHand:S.billy.twoHand});
-if(window.__testHooks)Object.assign(window.__testHooks,{statsFor,conflicts,TOMES,SIT});
+if(window.__testHooks)Object.assign(window.__testHooks,{statsFor,conflicts,TOMES,SIT,get ui(){return ui;},render:()=>render(),checkUpdate:m=>checkUpdate(m)});
 /* Une arme à deux mains exclut toute autre arme. */
 function conflicts(id,picked,T=prof()){
   const it=T.byId[id];if(!it||it.cat!=='arme')return false;
@@ -1451,6 +1460,178 @@ function checkVictory(){
   t.cheered=true;persistLocal();showVictory();
 }
 
+/* ---------- Version, mises à jour, signalements ---------- */
+const APP_VERSION='5.9';
+const REPO='Duchneu/carnet-de-billy';
+const isApk=()=>!!window.BillyAndroid;
+function openExternal(url){try{if(window.BillyAndroid&&BillyAndroid.openUrl){BillyAndroid.openUrl(url);return;}}catch(e){}window.open(url,'_blank','noopener');}
+const platformName=()=>isApk()?'Android (APK)':/iPhone|iPad|iPod/.test(navigator.userAgent)?'iPhone ou iPad (web)':'Navigateur web';
+const verNum=s=>{const m=String(s||'').match(/(\d+)\.(\d+)(?:\.(\d+))?/);return m?[+m[1],+m[2],+(m[3]||0)]:null;};
+const isNewer=(a,b)=>{for(let i=0;i<3;i++)if(a[i]!==b[i])return a[i]>b[i];return false;};
+async function checkUpdate(manual){
+  try{
+    const r=await fetch(`https://api.github.com/repos/${REPO}/releases/latest`,{headers:{Accept:'application/vnd.github+json'}});
+    if(!r.ok)throw new Error(r.status);
+    const j=await r.json();const v=verNum(j.tag_name)||verNum(j.name);
+    R.cfg.lastUpdCheck=Date.now();
+    if(v&&isNewer(v,verNum(APP_VERSION))){
+      const a=(j.assets||[]).find(x=>/\.apk$/i.test(x.name));
+      ui.update={v:v[2]?v.join('.'):v[0]+'.'+v[1],url:a?a.browser_download_url:`https://github.com/${REPO}/releases/latest`};
+      if(manual)R.cfg.updDismiss=null;
+      commit();
+    }else{save();if(manual)openDlg({kind:'info',title:'Mise à jour',text:`Vous avez la dernière version (${APP_VERSION}).`});}
+  }catch(e){if(manual)openDlg({kind:'info',title:'Mise à jour',text:'Vérification impossible pour l’instant : vérifiez la connexion, puis réessayez.'});}
+}
+const updBanner=()=>ui.update&&R.cfg.updDismiss!==ui.update.v?`<div class="upd-banner" role="status"><span>Nouvelle version ${esc(ui.update.v)} disponible</span><button class="btn primary" data-a="updGet">Télécharger</button><button class="icon-btn" data-a="updHide" aria-label="Masquer">×</button></div>`:'';
+function buildReport(){
+  const L=[`Version : ${APP_VERSION} (${platformName()})`];
+  if(S&&S.billy){
+    const st=stats(),b=S.billy,T=st.t;
+    L.push(`Tome ${prof().num} (${prof().name}), § ${S.para}`);
+    L.push(`Billy ${evolved()?EVOL[st.cls].name:CLASSES[st.cls].name} : Hab ${T.hab}, Adr ${T.adr}, End ${T.end}, Chance ${b.chance}/${T.cha}, Dég ${fmt(T.deg)}, Arm ${fmt(T.arm)}, Crit ${fmt(T.crit)}, PV ${b.pv}/${T.pvmax}`);
+    L.push(`Objets de départ : ${b.items.map(id=>(byId(id)||{}).name||id).join(', ')}${st.inactive.size?` (sans main libre : ${[...st.inactive].map(id=>(byId(id)||{}).name||id).join(', ')})`:''}`);
+    if(S.inventory.length)L.push(`Sac : ${S.inventory.map(x=>x.name).join(', ')}`);
+    const c=S.combat;
+    if(c){const s=situation();
+      L.push(`Combat : ${c.enemy.name} (Hab ${c.enemy.hab}, PV ${c.enemy.pv}/${c.enemy.pvMax}, Arm ${c.enemy.arm}, Dég ${c.enemy.deg})${c.src?`, combat du § ${c.src.para}`:''} ; ${s.name}, écart ${fmt(s.diff)} ; statut ${c.status}`);
+      const last=c.turns.slice(-4);if(last.length)L.push('Derniers assauts :\n'+last.map(t=>'- '+turnText(t)).join('\n'));}
+  }else L.push('Aucun Billy en cours.');
+  return L.join('\n');
+}
+function reportUrl(){
+  const body=`Décrivez le problème :\n\n\n\n---\n${buildReport()}`;
+  const title=S&&S.combat?`Problème en combat (§ ${S.para})`:'Problème';
+  return `https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body.slice(0,6000))}`;
+}
+function copyText(t){
+  let ok=false;
+  try{const a=document.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();ok=document.execCommand('copy');a.remove();}catch(e){}
+  if(!ok&&navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).catch(()=>{});ok=true;}
+  return ok;
+}
+
+/* ---------- Bilan d'aventure et fins obtenues ---------- */
+const ENDING_KIND={victoire:'Victoire finale',fin:'Fin de l’aventure',mort:'Billy a péri'};
+function archiveCombat(c){
+  if(!c||!S)return;const j=S.journal=S.journal||{};
+  for(const k of ['combats','won','lost','evaded','assaults','dealt','taken'])j[k]=int(j[k]);
+  j.combats++;j.assaults+=c.turns.length;
+  for(const t of c.turns){j.dealt+=int(t.dealt);j.taken+=int(t.taken);}
+  if(c.status==='victoire'||(c.status==='domination'&&c.domResult==='win'))j.won++;
+  else if(c.status==='evite')j.evaded++;
+  else if(c.status==='defaite'||(c.status==='domination'&&c.domResult==='lose'))j.lost++;
+}
+function endCombat(){if(S&&S.combat){archiveCombat(S.combat);S.combat=null;}}
+function journalNow(){
+  const j=Object.assign({combats:0,won:0,lost:0,evaded:0,assaults:0,dealt:0,taken:0},S.journal||{});
+  if(S.combat){const tmp=S.journal;S.journal=clone(j);archiveCombat(S.combat);const r=S.journal;S.journal=tmp;return r;}
+  return j;
+}
+function bilanChips(rec){
+  const j=rec.journal,out=[];
+  out.push(`${rec.paras} paragraphe${rec.paras>1?'s':''}`);
+  out.push(`${j.won} combat${j.won>1?'s':''} gagné${j.won>1?'s':''}`);
+  if(j.evaded)out.push(`${j.evaded} évité${j.evaded>1?'s':''}`);
+  if(j.lost)out.push(`${j.lost} défaite${j.lost>1?'s':''}`);
+  out.push(`${rec.ach} succès`);
+  for(const c of (TOMES[rec.tome]||prof()).counters)if(int(rec.counters[c.k]))out.push(`${c.l} ${rec.counters[c.k]}`);
+  return out;
+}
+function showBilan(rec){
+  const el=document.getElementById('victory');if(!el)return;
+  const list=((R.endings||{})[rec.tome]||[]);
+  el.innerHTML=`<div class="vic-in" role="alertdialog" aria-modal="true" aria-labelledby="bilTitle">
+      <div class="vic-medal-wrap"><div class="vic-medal">${EMBLEM[rec.cls]?`<svg class="emb" viewBox="0 0 24 24" aria-hidden="true">${EMBLEM[rec.cls]}</svg>`:trophy()}</div></div>
+      <h2 id="bilTitle" class="vic-title bil-title">${esc(rec.name||ENDING_KIND[rec.kind])}</h2>
+      <p class="vic-sub">Billy ${esc(rec.clsName)}, tome ${(TOMES[rec.tome]||{}).num||''}, § ${rec.para}</p>
+      <div class="vic-stats" style="margin-top:14px">${bilanChips(rec).map(x=>`<span>${esc(x)}</span>`).join('')}</div>
+      <p class="small muted">Fins obtenues pour ce tome : ${list.length}</p>
+      <div class="vic-actions"><button class="btn primary" data-a="cardOpen">Partager mon aventure</button><button class="btn" data-a="victoryStay">Fermer</button></div>
+    </div>`;
+  el.hidden=false;el.classList.remove('show');void el.offsetWidth;el.classList.add('show');
+}
+
+/* ---------- Carte de Billy à partager (image) ---------- */
+const CLS_COLOR={guerrier:'#8E1B1B',paysan:'#556B1E',prudent:'#1F4F8F',debrouillard:'#0F6B64'};
+const cssImg=v=>{const m=getComputedStyle(document.documentElement).getPropertyValue(v).match(/url\(["']?(.*?)["']?\)\s*$/);return m?m[1]:'';};
+const loadImg=src=>new Promise(res=>{if(!src){res(null);return;}const i=new Image();i.onload=()=>res(i);i.onerror=()=>res(null);i.src=src;});
+function rr(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+function wrapText(g,text,x,y,maxW,lh,maxLines){const words=text.split(' ');let line='',n=0;
+  for(const w of words){const t=line?line+' '+w:w;if(g.measureText(t).width>maxW&&line){g.fillText(line,x,y+n*lh);n++;line=w;if(n>=maxLines-1)break;}else line=t;}
+  if(line&&n<maxLines){g.fillText(line,x,y+n*lh);n++;}return n;}
+async function makeCard(rec){
+  const W=1080,H=1350,cv=document.createElement('canvas');cv.width=W;cv.height=H;const g=cv.getContext('2d');
+  const GF='"Grenze Gotisch", Georgia, serif',BF='"Barlow Semi Condensed", "Arial Narrow", sans-serif';
+  try{await Promise.all(['800 90px "Grenze Gotisch"','600 50px "Grenze Gotisch"','500 34px "Barlow Semi Condensed"','700 34px "Barlow Semi Condensed"'].map(f=>document.fonts.load(f)));}catch(e){}
+  const st=stats(),b=S.billy,T=st.t,cls=st.cls,col=CLS_COLOR[cls]||'#1F5FAD';
+  const [bg,vel,div]=await Promise.all([loadImg(cssImg('--bg-img')),loadImg(cssImg('--img-vellum')),loadImg(cssImg('--img-divider'))]);
+  g.fillStyle='#E8D7B0';g.fillRect(0,0,W,H);
+  if(bg){const s=Math.max(W/bg.width,H/bg.height);g.drawImage(bg,(W-bg.width*s)/2,(H-bg.height*s)/2,bg.width*s,bg.height*s);}
+  const X=70,Y=80,CW=W-140,CH=H-160;
+  g.save();g.shadowColor='rgba(40,20,5,.35)';g.shadowBlur=30;g.shadowOffsetY=10;rr(g,X,Y,CW,CH,28);g.fillStyle='#F7EBCF';g.fill();g.restore();
+  g.save();rr(g,X,Y,CW,CH,28);g.clip();if(vel){g.fillStyle=g.createPattern(vel,'repeat');g.fillRect(X,Y,CW,CH);}g.fillStyle='rgba(255,250,232,.25)';g.fillRect(X,Y,CW,CH);g.fillStyle=col;g.fillRect(X,Y,CW,14);g.restore();
+  rr(g,X,Y,CW,CH,28);g.lineWidth=3;g.strokeStyle='#B9975E';g.stroke();
+  const cx=W/2;
+  g.beginPath();g.arc(cx,232,86,0,Math.PI*2);g.fillStyle='#FBF3DF';g.fill();g.lineWidth=7;g.strokeStyle='#C99A2E';g.stroke();
+  if(EMBLEM[cls]){const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${col}"><style>.s{fill:none;stroke:${col};stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}</style>${EMBLEM[cls]}</svg>`;
+    const em=await loadImg('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg));if(em)g.drawImage(em,cx-58,174,116,116);}
+  g.textAlign='center';g.textBaseline='alphabetic';
+  g.fillStyle=col;g.font='800 92px '+GF;g.fillText('Billy '+(evolved()?EVOL[cls].name:CLASSES[cls].name),cx,410);
+  g.fillStyle='#5E4626';g.font='500 36px '+BF;g.fillText(`Tome ${prof().num} : ${prof().name}`,cx,460);
+  if(div){const dh=26,dw=div.width*dh/div.height;g.globalAlpha=.75;g.drawImage(div,cx-dw/2,480,dw,dh);g.globalAlpha=1;}
+  let y=565;
+  if(rec){g.fillStyle='#2B1D10';g.font='600 52px '+GF;g.fillText(rec.name||ENDING_KIND[rec.kind],cx,y);g.fillStyle='#5E4626';g.font='500 32px '+BF;g.fillText(`§ ${rec.para}`,cx,y+42);y+=85;}
+  else y=545;
+  const cells=[['Habileté',T.hab],['Adresse',T.adr],['Endurance',T.end],['Chance',`${b.chance}/${T.cha}`],['Dégâts',fmt(T.deg)],['Armure',fmt(T.arm)],['Critique',fmt(T.crit)],['PV',`${b.pv}/${T.pvmax}`]];
+  const gx=X+60,gw=(CW-120)/4;
+  cells.forEach(([l,v],i)=>{const cxx=gx+gw*(i%4)+gw/2,yy=y+Math.floor(i/4)*138;
+    rr(g,cxx-gw/2+8,yy,gw-16,122,18);g.fillStyle='rgba(232,211,166,.55)';g.fill();g.lineWidth=2;g.strokeStyle='#C9AE7E';g.stroke();
+    g.fillStyle='#5E4626';g.font='600 30px '+BF;g.fillText(l,cxx,yy+42);g.fillStyle='#2B1D10';g.font='800 56px '+GF;g.fillText(String(v),cxx,yy+102);});
+  y+=138+122+62;
+  g.fillStyle='#2B1D10';g.font='700 32px '+BF;g.fillText('Objets',cx,y);
+  g.fillStyle='#4A3720';g.font='500 32px '+BF;
+  const objs=b.items.map(id=>(byId(id)||{}).name||id).concat(S.inventory.map(x=>x.name));
+  const n=wrapText(g,objs.join(', ')||'Aucun',cx,y+44,CW-140,40,rec?2:3);y+=44+n*40+24;
+  const j=journalNow();const np=new Set([...S.history,S.para]).size;const chips=[`${np} paragraphe${np>1?'s':''}`,`${j.won} combat${j.won>1?'s':''} gagné${j.won>1?'s':''}`,`${(S.achievements||[]).length} succès`];
+  for(const c of prof().counters)if(int(b.counters[c.k]))chips.push(`${c.l} ${b.counters[c.k]}`);
+  g.font='600 30px '+BF;const pad=26,gap=14;let rows=[[]],rw=0;const maxRow=CW-100;
+  for(const c of chips){const w=g.measureText(c).width+pad*2;if(rw+w>maxRow&&rows[rows.length-1].length){rows.push([]);rw=0;}rows[rows.length-1].push([c,w]);rw+=w+gap;}
+  for(const row of rows){const tot=row.reduce((a,[,w])=>a+w,0)+gap*(row.length-1);let xx=cx-tot/2;
+    for(const [c,w] of row){rr(g,xx,y,w,56,28);g.fillStyle='rgba(201,154,46,.18)';g.fill();g.lineWidth=2;g.strokeStyle='#C99A2E';g.stroke();g.fillStyle='#2B1D10';g.fillText(c,xx+w/2,y+39);xx+=w+gap;}
+    y+=70;}
+  const fy=Math.max(Y+CH-62,y+30);
+  g.fillStyle='#5E4626';g.font='700 34px '+GF;g.fillText('Carnet de Billy',cx,fy);
+  g.font='500 26px '+BF;g.fillText('duchneu.github.io/carnet-de-billy',cx,fy+34);
+  return cv;
+}
+/* Texte de publication préparé à partir de la partie (modifiable avant partage). */
+function postText(rec){
+  const st=stats(),cls=evolved()?EVOL[st.cls].name:CLASSES[st.cls].name,tome=prof().name;
+  const j=journalNow(),np=new Set([...S.history,S.para]).size,na=(S.achievements||[]).length;
+  const facts=`${np} paragraphe${np>1?'s':''}, ${j.won} combat${j.won>1?'s':''} gagné${j.won>1?'s':''} et ${na} succès`;
+  const named=rec&&rec.name?` : « ${rec.name} »`:'';
+  const head=!rec?`Mon Billy ${cls} en route dans ${tome}.`
+    :rec.kind==='mort'?`Mon Billy ${cls} a péri dans ${tome}${named} (§ ${rec.para}).`
+    :`Mon Billy ${cls} a terminé ${tome}${named} (§ ${rec.para}) !`;
+  return `${head} Bilan : ${facts}.\nJoué avec Carnet de Billy : https://duchneu.github.io/carnet-de-billy/\n#PyroBarbare #LivreJeu`;
+}
+async function openCard(rec){
+  openDlg({kind:'card',src:'',rec,post:postText(rec)});
+  try{const cv=await makeCard(rec);const url=cv.toDataURL('image/png');if(ui.dlg&&ui.dlg.kind==='card'){ui.dlg.src=url;renderDialog();}}
+  catch(e){if(ui.dlg&&ui.dlg.kind==='card'){ui.dlg.err=true;renderDialog();}}
+}
+async function shareCard(){
+  const d=ui.dlg;const src=d&&d.src;if(!src)return;
+  const text=(document.getElementById('postTxt')||{}).value||d.post||'';d.post=text;
+  const name=`billy-${S.tome}-${new Date().toISOString().slice(0,10)}.png`;
+  if(isApk()&&BillyAndroid.saveImage){try{BillyAndroid.saveImage(src.split(',')[1],name,text);}catch(e){BillyAndroid.saveImage(src.split(',')[1],name);}return;}
+  try{const blob=await (await fetch(src)).blob();const file=new File([blob],name,{type:'image/png'});
+    if(navigator.canShare&&navigator.canShare({files:[file],text})){await navigator.share({files:[file],text,title:'Carte de Billy'});return;}
+  }catch(e){if(e&&e.name==='AbortError')return;}
+  const a=document.createElement('a');a.href=src;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  const ok=copyText(text);d.note=ok?'Image enregistrée et texte copié : il reste à les coller dans votre publication.':'Image enregistrée. Copiez le texte ci-dessus pour votre publication.';renderDialog();
+}
+
 /* ---------- Écran de mort ---------- */
 const EPITAPH={
   guerrier:['Il a frappé le premier. L’autre a frappé le dernier.','Il comptait sur ses muscles. Ses muscles comptaient sur lui.','Foncer tête baissée, c’est bien. Regarder d’abord, c’est mieux.','Mort l’arme à la main. Et le plan nulle part.','Le Pyro-Barbare racontera qu’il a été très courageux.'],
@@ -1483,6 +1664,7 @@ function showDeath(opts){
         ${fromTurn?'<button class="btn" data-a="deathUndo">Annuler l’assaut</button>':''}
         ${prof().deathPara?`<button class="btn" data-a="deathGoto">Aller au § ${prof().deathPara}</button>`:''}
         ${S.saves.length?'<button class="btn" data-a="deathSaves">Revenir à un point de sauvegarde</button>':''}
+        <button class="btn" data-a="endOpen" data-v="mort">Bilan de l’aventure</button>
         <button class="btn" data-a="deathClose">Fermer</button>
       </div>
     </div>`;
@@ -1548,6 +1730,8 @@ function viewParties(){
   if(!R.parties.length)h+=`<p class="muted">Aucune partie pour l’instant. Choisissez le tome à jouer.</p>`;
   else h+=`<ul class="saves">${R.parties.map(p=>{const T=TOMES[p.tome];return `<li><span class="lbl">${p.billy?emb(classOf(p.billy.items,T),'party-emb','color:var(--cls-'+classOf(p.billy.items,T)+')'):''}Tome ${T.num} : ${esc(T.name)}<span>${esc(partyInfo(p))}${p.id===R.active?', partie ouverte':''}</span></span><button class="btn primary" data-a="openParty" data-id="${p.id}">Ouvrir</button><button class="btn danger" data-a="askDelParty" data-id="${p.id}" aria-label="Supprimer la partie">Suppr.</button></li>`;}).join('')}</ul>`;
   const pen='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V13"/><path d="M17.6 3.6a2 2 0 0 1 2.8 2.8l-8.2 8.2-3.7.9.9-3.7z"/></svg>';
+  const ends=R.endings||{};const endTomes=Object.keys(ends).filter(t=>ends[t]&&ends[t].length&&TOMES[t]);
+  if(endTomes.length)h+=`</section><section class="sheet"><h2>Fins obtenues</h2>${endTomes.map(t=>`<p class="small"><b>Tome ${TOMES[t].num} : ${ends[t].length} fin${ends[t].length>1?'s':''}</b><br>${ends[t].slice(-6).reverse().map(e=>`${esc(e.name)} (§ ${e.para})`).join(', ')}</p>`).join('')}`;
   h+=`</section><section class="sheet"><div class="h2-row"><h2>Nouvelle partie</h2><button class="icon-btn" data-a="tomeNew" aria-label="Saisir un autre tome" title="Saisir un autre tome">${pen}</button></div><div class="btn-row">${Object.values(TOMES).map(T=>T.custom?`<span class="tome-pick"><button class="btn" data-a="newParty" data-t="${T.id}">Tome ${T.num} : ${esc(T.name)}</button><button class="icon-btn" data-a="tomeEdit" data-id="${T.id}" aria-label="Modifier le tome ${T.num}" title="Modifier le tome">${pen}</button></span>`:`<button class="btn" data-a="newParty" data-t="${T.id}">Tome ${T.num} : ${esc(T.name)}</button>`).join('')}</div>
     <p class="small muted" style="margin-top:8px">Chaque partie a son Billy, son sac, ses notes, ses jets et ses points de sauvegarde.</p></section>
   <section class="sheet"><h2>Copie de sécurité</h2>
@@ -1631,6 +1815,7 @@ function viewBilly(){
     <p class="cls-tag">${evolved()?`${C.name} évolué`:C.tag}</p>
     <p>${C.power}</p>
     ${evolved()?`<p><b>${EVOL[st.cls].name} :</b> ${EVOL[st.cls].power}</p>`:''}
+    <div class="btn-row"><button class="btn" data-a="cardOpen">Carte de Billy</button></div>
     ${prof().evolutions?`<div class="start-row"><div><b>Évolution de caractère</b><div class="small muted">Quand le livre l’annonce : Billy ${EVOL[st.cls].name}.</div></div><button class="btn" data-a="toggleEvolved" aria-pressed="${!!b.evolved}">${b.evolved?'Oui':'Non'}</button></div>`:''}
     ${evolved()&&st.cls==='prudent'?`<div class="start-row"><div><b>Sacrifice</b><div class="small muted">2 PV contre 1 point de Chance, une fois par paragraphe.</div></div><button class="btn" data-a="sacrifice" ${b.pv<=2||b.chance>=st.t.cha||b.sacPara===S.para?'disabled':''}>2 PV → 1 Chance</button></div>`:''}
     <p class="small muted">Objets de départ : ${b.items.map(id=>byId(id)?byId(id).name:id).join(', ')}. Tome ${prof().num} : ${prof().name}.</p>
@@ -1686,6 +1871,7 @@ function bookCard(){
   </section>`;
 }
 function startBookCombat(){
+  endCombat();
   const bc=bookCombat();if(!bc)return;
   const sts=stats();const st=sts.t;const x=bc.x||[];const fx=bc.fx||{};
   const items=S.billy.items;const has=id=>items.includes(id);
@@ -1843,6 +2029,7 @@ function viewCombat(){
     <div class="sit"><span class="sit-name">${s.name}</span><span class="muted">Écart ${fmt(s.diff)}${Math.abs(s.diff)>7?` (lu à ${fmt(s.cd)})`:''}</span></div>
     <div class="preview-wrap"><div class="preview" aria-label="Résultat selon le dé d’attaque">${prev}</div></div>
     ${!ended?`<div class="btn-row"><button class="btn danger" data-a="closeCombat">Abandonner le combat</button></div>`:''}
+    <div class="btn-row"><button class="btn" data-a="reportOpen">Signaler un problème sur ce combat</button></div>
   </section>`;
   return h+rulesBlock();
 }
@@ -1908,6 +2095,7 @@ function viewCarnet(){
     ${S&&S.savedAt?`<p class="small muted">Dernier enregistrement : ${dateStr(S.savedAt)}.</p>`:''}
     ${backupBlock()}
     <div class="btn-row"><button class="btn" data-a="exportOpen">Exporter mes parties</button><button class="btn" data-a="importOpen">Importer des parties</button></div>
+    <div class="btn-row"><button class="btn" data-a="endOpen">Terminer l’aventure</button></div>
     <div class="btn-row"><button class="btn" data-a="parties">Mes parties</button><button class="btn danger" data-a="askNewBilly">Nouveau Billy</button></div>
   </section>`;
 }
@@ -2025,6 +2213,8 @@ function renderDialog(){
       <h4 class="cfg-h">Affichage</h4>
       ${row('Taille du texte','',seg('zoom',[[0.9,'A−'],[1,'A'],[1.15,'A+'],[1.3,'A++']]))}
       ${row('Bruit des dés','',seg('sound',[['false','Non'],['true','Oui']]))}
+      ${row(`Version ${APP_VERSION}`,isApk()?'':'la version web se met à jour toute seule',isApk()?'<div class="seg"><button class="btn" data-a="updCheck">Rechercher une mise à jour</button></div>':'')}
+      ${row('Signaler un problème','avec le détail de la partie en cours','<div class="seg"><button class="btn" data-a="reportOpen">Préparer le signalement</button></div>')}
       ${row('Prise en main','les étapes du premier lancement','<div class="seg"><button class="btn" data-a="tutoOpen">Revoir le tutoriel</button></div>')}
       <h4 class="cfg-h">Règles de la maison</h4>
       <p class="small muted">Pour deux combats où le texte laisse un doute.</p>
@@ -2035,6 +2225,24 @@ function renderDialog(){
     h=`<div class="dlg-in"><h3 class="dlg-title" id="dlgTitle">Note du § ${d.para}</h3>
       <textarea id="pnoteIn" rows="4" aria-label="Note du paragraphe ${d.para}" placeholder="Ce qu’il faut retenir de ce paragraphe">${esc(d.text||'')}</textarea>
       <div class="dlg-actions">${d.text?'<button class="btn danger" data-a="pnoteDel">Effacer</button>':''}<button class="btn" data-a="dlgClose">Annuler</button><button class="btn primary" data-a="pnoteSave">Enregistrer</button></div></div>`;
+  }else if(d.kind==='report'){
+    h=`<div class="dlg-in"><h3 class="dlg-title" id="dlgTitle">Signaler un problème</h3>
+      <p class="small muted">Ces informations aident à reproduire le problème. Ajoutez une phrase pour le décrire.</p>
+      <textarea id="reportTxt" rows="9" aria-label="Rapport">${esc(buildReport())}</textarea>
+      <div class="dlg-actions"><button class="btn" data-a="dlgClose">Fermer</button><button class="btn" data-a="reportCopy">${d.copied?'Copié':'Copier'}</button><button class="btn primary" data-a="reportGit">Ouvrir sur GitHub</button></div></div>`;
+  }else if(d.kind==='ending'){
+    const k=d.endKind||'fin';
+    h=`<div class="dlg-in"><h3 class="dlg-title" id="dlgTitle">Terminer l’aventure</h3>
+      <div class="seg" role="group">${Object.entries(ENDING_KIND).map(([v,l])=>`<button class="btn ${k===v?'on':''}" data-a="endKind" data-v="${v}" aria-pressed="${k===v}">${l}</button>`).join('')}</div>
+      <label class="fl" style="margin-top:10px">Nom de la fin (facultatif)<input id="endName" autocomplete="off" value="${esc(d.name||'')}" placeholder="Tel qu’indiqué dans le livre"></label>
+      <div class="grid2"><label class="fl">Paragraphe<input id="endPara" inputmode="numeric" autocomplete="off" value="${esc(d.para||S.para)}"></label><span></span></div>
+      <div class="dlg-actions"><button class="btn" data-a="dlgClose">Annuler</button><button class="btn primary" data-a="endSave">Voir le bilan</button></div></div>`;
+  }else if(d.kind==='card'){
+    h=`<div class="dlg-in"><h3 class="dlg-title" id="dlgTitle">Carte de Billy</h3>
+      ${d.src?`<img class="card-img" src="${d.src}" alt="Carte de Billy">`:d.err?'<p>L’image n’a pas pu être créée.</p>':'<p class="muted">Préparation de la carte…</p>'}
+      <label class="fl">Texte de la publication<textarea id="postTxt" rows="4">${esc(d.post||'')}</textarea></label>
+      ${d.note?`<p class="small" role="status">${esc(d.note)}</p>`:''}
+      <div class="dlg-actions"><button class="btn" data-a="dlgClose">Fermer</button><button class="btn" data-a="postCopy">${d.copied?'Copié':'Copier le texte'}</button><button class="btn primary" data-a="cardShare" ${d.src?'':'disabled'}>Partager</button></div></div>`;
   }else if(d.kind==='pickItem'){
     h=`<div class="dlg-in"><h3 class="dlg-title" id="dlgTitle">Objet du livre ?</h3>
       <p class="small muted">« ${esc(d.typed)} » ressemble à :</p>
@@ -2092,7 +2300,7 @@ function render(){
   if(ui.view==='tome'&&ui.tomeDraft){
     nav.hidden=true;app.classList.add('creating');app.classList.remove('has-actionbar');app.innerHTML=viewTome();
   }else if(!S||ui.view==='parties'){
-    nav.hidden=true;app.classList.add('creating');app.classList.remove('has-actionbar');app.innerHTML=viewParties();
+    nav.hidden=true;app.classList.add('creating');app.classList.remove('has-actionbar');app.innerHTML=updBanner()+viewParties();
   }else if(!S.billy){
     nav.hidden=true;app.classList.add('creating');app.classList.remove('has-actionbar');app.innerHTML=viewCreate();
   }else{
@@ -2101,7 +2309,7 @@ function render(){
     const views={billy:viewBilly,sac:viewSac,combat:viewCombat,des:viewDes,carnet:viewCarnet};
     if(!views[ui.tab])ui.tab='billy';
     nav.querySelectorAll('.tab').forEach(b=>{if(b.dataset.t===ui.tab)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
-    app.innerHTML=views[ui.tab]();
+    app.innerHTML=updBanner()+views[ui.tab]();
     app.classList.toggle('has-actionbar',ui.tab==='combat'&&!!S.combat);
     const ct=nav.querySelector('[data-t="combat"]');if(ct)ct.classList.toggle('live',!!(S.combat&&S.combat.status==='en cours'));
   }
@@ -2115,7 +2323,7 @@ const CONFIRM={
   newBilly(){S.billy=null;S.combat=null;S.inventory=[];S.history=[];S.para=1;ui.pick=[];setTab('billy');commit();window.scrollTo(0,0);},
   restore(id){const sv=S.saves.find(x=>x.id===id);if(!sv)return;const g=clone(sv.game);S.billy=g.billy;S.inventory=g.inventory;S.para=g.para;S.history=g.history;S.combat=null;migrateParty(S);setTab('billy');commit();},
   delParty(id){R.parties=R.parties.filter(p=>p.id!==id);if(R.active===id){R.active=null;S=null;}ui.view='parties';commit();},
-  closeCombat(){S.combat=null;commit();},
+  closeCombat(){endCombat();commit();},
   delTome(id){R.customTomes=(R.customTomes||[]).filter(x=>x.id!==id);installCustomTomes(R.customTomes);commit();},
   delSave(id){S.saves=S.saves.filter(x=>x.id!==id);commit();},
   engageBook(){startBookCombat();}
@@ -2174,6 +2382,7 @@ const A={
   newParty(el){const p=freshParty(el.dataset.t);R.parties.push(p);setActive(p.id);ui.view='game';setTab('billy');commit();window.scrollTo(0,0);},
   askDelParty(el){const p=R.parties.find(x=>x.id===el.dataset.id);if(!p)return;openDlg({kind:'confirm',title:'Supprimer la partie ?',text:`La partie du tome ${TOMES[p.tome].num} est effacée avec ses notes, ses jets et ses points de sauvegarde.`,ok:'Supprimer',act:'delParty',arg:p.id});},
   startCombat(){
+    endCombat();
     const g=id=>document.getElementById(id);
     const hab=g('cHab').value.trim(),pv=g('cPv').value.trim();
     g('cHab').removeAttribute('aria-invalid');g('cPv').removeAttribute('aria-invalid');
@@ -2280,6 +2489,25 @@ const A={
   askRestore(el){const sv=S.saves.find(x=>x.id===el.dataset.id);if(!sv)return;openDlg({kind:'confirm',title:'Restaurer ?',text:`Billy, le sac et le paragraphe reviennent à « ${esc(sv.name)} » (${esc(sv.details||'')}). Les notes restent telles quelles.`,ok:'Restaurer',act:'restore',arg:sv.id});},
   saveDelete(el){const sv=S.saves.find(x=>x.id===el.dataset.id);if(!sv)return;openDlg({kind:'confirm',title:'Supprimer la sauvegarde ?',text:`« ${esc(sv.name)} » sera effacée.`,ok:'Supprimer',act:'delSave',arg:sv.id});},
   exportOpen(){openDlg({kind:'export'});},
+  updGet(){if(ui.update)openExternal(ui.update.url);},
+  updHide(){if(ui.update){R.cfg.updDismiss=ui.update.v;commit();}},
+  updCheck(){closeDlg();checkUpdate(true);},
+  reportOpen(){openDlg({kind:'report'});},
+  reportCopy(){const t=(document.getElementById('reportTxt')||{}).value||buildReport();if(copyText(t)){ui.dlg.copied=true;renderDialog();}},
+  reportGit(){const t=(document.getElementById('reportTxt')||{}).value;const body=`${t||buildReport()}`;openExternal(`https://github.com/${REPO}/issues/new?title=${encodeURIComponent(S&&S.combat?`Problème en combat (§ ${S.para})`:'Problème')}&body=${encodeURIComponent(body.slice(0,6000))}`);},
+  endOpen(el){hideDeath();openDlg({kind:'ending',endKind:(el&&el.dataset.v)||'fin',para:S.para});},
+  endKind(el){const n=(document.getElementById('endName')||{}).value,p=(document.getElementById('endPara')||{}).value;ui.dlg.endKind=el.dataset.v;ui.dlg.name=n;ui.dlg.para=p;renderDialog();},
+  endSave(){
+    const d=ui.dlg;const name=(document.getElementById('endName').value||'').trim();const para=int(document.getElementById('endPara').value)||S.para;closeDlg();
+    const st=stats();
+    const rec={id:uid(),t:Date.now(),tome:S.tome,kind:d.endKind||'fin',name,para,cls:st.cls,clsName:evolved()?EVOL[st.cls].name:CLASSES[st.cls].name,
+      counters:clone(S.billy.counters||{}),journal:journalNow(),ach:(S.achievements||[]).length,paras:new Set([...S.history,S.para]).size};
+    (S.endings=S.endings||[]).push(rec);R.endings=R.endings||{};(R.endings[S.tome]=R.endings[S.tome]||[]).push({name:rec.name||ENDING_KIND[rec.kind],kind:rec.kind,para,t:rec.t});
+    commit();ui.lastEnding=rec;showBilan(rec);
+  },
+  cardOpen(){const rec=ui.lastEnding&&ui.lastEnding.tome===S.tome?ui.lastEnding:null;hideVictory();openCard(rec);},
+  cardShare(){shareCard();},
+  postCopy(){const t=(document.getElementById('postTxt')||{}).value||'';ui.dlg.post=t;if(copyText(t)){ui.dlg.copied=true;renderDialog();}},
   applyCat(el){const it=S.inventory.find(x=>x.id===el.dataset.id);const e=it&&catMatch(it.name);if(!e)return;it.name=e.n;it.mods=clone(e.m||{});commit();},
   installItem(el){const it=S.inventory.find(x=>x.id===el.dataset.id);const v=it&&installedOf(catMatch(it.name));if(!v)return;it.name=v.n;it.mods=clone(v.m||{});commit();},
   toggleEvolved(){S.billy.evolved=!S.billy.evolved;commit();},
@@ -2345,9 +2573,9 @@ const A={
   achDel(){const d=ui.dlg;S.achievements=(S.achievements||[]).filter(x=>x.id!==d.id);closeDlg();commit();},
   achToast(){const el=document.getElementById('achToast');if(el){el.hidden=true;el.classList.remove('show');}},
   deathClose(){hideDeath();},
-  deathGoto(){hideDeath();S.combat=null;goPara(prof().deathPara);setTab('billy');commit();window.scrollTo(0,0);},
-  victoryStay(){hideVictory();},
-  victoryGo(){hideVictory();S.combat=null;setTab('billy');commit();window.scrollTo(0,0);},
+  deathGoto(){hideDeath();endCombat();goPara(prof().deathPara);setTab('billy');commit();window.scrollTo(0,0);},
+  victoryStay(){hideVictory();ui.lastEnding=null;},
+  victoryGo(){hideVictory();endCombat();setTab('billy');commit();window.scrollTo(0,0);},
   deathUndo(){hideDeath();A.undo();},
   deathSaves(){hideDeath();setTab('carnet');render();const s=[...document.querySelectorAll('#app h2')].find(x=>x.textContent==='Points de sauvegarde');if(s)s.scrollIntoView({block:'start'});},
   deathSurvive(){hideDeath();A.survive();},
@@ -2397,6 +2625,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 normalize();
 render();
 if(!CFG().tutoSeen)setTimeout(openTuto,350);
+if(isApk()&&Date.now()-int(CFG().lastUpdCheck)>20*3600*1000)setTimeout(()=>checkUpdate(false),2500);
 initRemote();
 })();
 </script>
