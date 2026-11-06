@@ -2,7 +2,7 @@
    La page (index.html) est d'abord demandée au réseau : une nouvelle version déposée en ligne
    apparaît à la prochaine ouverture. Sans réseau, la dernière copie enregistrée est utilisée.
    Le reste (icônes, polices) est servi depuis la copie locale. */
-const CACHE = 'carnet-billy-v54';
+const CACHE = 'carnet-billy-v55';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

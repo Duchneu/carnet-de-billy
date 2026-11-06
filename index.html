@@ -579,6 +579,7 @@ nav.tabs{background:#462B1F var(--img-leather-up) center top/cover no-repeat;bor
 .hold-btn{min-height:36px;font-size:14px;padding:0 10px}
 .hold-btn[aria-pressed="true"]{border-color:var(--moss);color:var(--moss)}
 .c-sp{display:block;min-width:36px}
+.item-x{width:100%;margin-top:4px;min-height:38px;font-size:14px;justify-content:space-between;border-style:dashed}
 </style>
 </head>
 <body>
@@ -710,6 +711,18 @@ const catItems=()=>(S&&ITEM_CATALOG[S.tome])||[];
 const catFind=name=>catItems().find(e=>normTxt(e.n)===normTxt(name));
 const inSac=name=>S.inventory.find(x=>normTxt(x.name)===normTxt(name));
 function addCatItem(e){if(!e||inSac(e.n))return;S.inventory.unshift({id:uid(),name:e.n,note:'',mods:clone(e.m||{})});}
+/* Reconnaissance souple d'un objet du livre : sans article, ni accents, ni tirets, ni pluriel ; début de nom accepté s'il est sans ambiguïté. */
+const itemKey=s=>normTxt(s).replace(/[^a-z0-9 ]/g,' ').replace(/^(les|le|la|l|un|une|des|du)\s+/,'').split(/\s+/).filter(Boolean).map(w=>w.length>3?w.replace(/[sx]$/,''):w).join('');
+function catMatch(name){
+  const k=itemKey(name);if(!k)return null;
+  const list=catItems().filter(e=>!/install/.test(itemKey(e.n)));
+  const exact=catItems().find(e=>itemKey(e.n)===k);if(exact)return exact;
+  if(k.length<5)return null;
+  const pre=list.filter(e=>itemKey(e.n).startsWith(k));
+  return pre.length===1?pre[0]:null;
+}
+/* Version « installée » d'un objet (tome 2) : ses bonus ne comptent qu'une fois installé. */
+const installedOf=e=>e&&catItems().find(v=>itemKey(v.n)===itemKey(e.n)+'installe');
 /* Objets cités au paragraphe courant : un toucher les met dans le sac ou les en retire. */
 function hereChips(){
   const list=catItems().map((e,i)=>({e,i})).filter(x=>x.e.p.includes(S.para));
@@ -1630,7 +1643,15 @@ function viewSac(){
   if(!S.inventory.length){
     h+=`<p class="muted small" style="margin-top:10px">Le sac est vide. Ajoutez les objets au fil des paragraphes ; touchez un objet pour noter son usage ou un bonus permanent.</p>`;
   }else{
-    h+=`<ul class="items">`+S.inventory.map(it=>`<li><button class="item" data-a="itemEdit" data-id="${it.id}"><span class="n">${esc(it.name)}</span>${it.note?`<span class="note">${esc(it.note)}</span>`:''}${badges(it.mods)}</button></li>`).join('')+`</ul>`;
+    const extra=it=>{
+      if(Object.keys(it.mods||{}).some(k=>int(it.mods[k])))return '';
+      const e=catMatch(it.name);if(!e)return '';
+      if(e.m&&Object.keys(e.m).length)return `<button class="btn item-x" data-a="applyCat" data-id="${it.id}">Bonus du livre ${badges(e.m)}</button>`;
+      const v=installedOf(e);
+      if(v&&v.m)return `<button class="btn item-x" data-a="installItem" data-id="${it.id}">Installer ${badges(v.m)}</button>`;
+      return '';
+    };
+    h+=`<ul class="items">`+S.inventory.map(it=>`<li><button class="item" data-a="itemEdit" data-id="${it.id}"><span class="n">${esc(it.name)}</span>${it.note?`<span class="note">${esc(it.note)}</span>`:''}${badges(it.mods)}</button>${extra(it)}</li>`).join('')+`</ul>`;
   }
   return h+`</section>`;
 }
@@ -2100,7 +2121,7 @@ const A={
   setExact(){const i=document.getElementById('exactIn');const f=ui.dlg&&field(ui.dlg.key);if(!i||!f||i.value.trim()==='')return;const k=ui.dlg.key;const was=S.billy.pv;f.set(clamp(int(i.value),f.min,f.max()));commit();if(k==='pv'&&was>0&&S.billy.pv===0){closeDlg();showDeath();}},
   dlgClose(){closeDlg();},
   confirmOk(){const d=ui.dlg;closeDlg();if(d&&CONFIRM[d.act])CONFIRM[d.act](d.arg);},
-  addItem(){const i=document.getElementById('itemIn');const n=i&&i.value.trim();if(!n)return;const e=catFind(n);if(e)addCatItem(e);else S.inventory.unshift({id:uid(),name:n,note:'',mods:{}});commit();const j=document.getElementById('itemIn');if(j)j.focus();},
+  addItem(){const i=document.getElementById('itemIn');const n=i&&i.value.trim();if(!n)return;const e=catMatch(n);if(e&&!inSac(e.n))addCatItem(e);else if(!e) S.inventory.unshift({id:uid(),name:n,note:'',mods:{}});commit();const j=document.getElementById('itemIn');if(j)j.focus();},
   itemEdit(el){const it=S.inventory.find(x=>x.id===el.dataset.id);if(!it)return;openDlg({kind:'item',id:it.id,name:it.name,note:it.note||'',mods:Object.assign({},it.mods||{})});},
   itStep(el){captureItem();const k=el.dataset.k;ui.dlg.mods[k]=clamp(int(ui.dlg.mods[k])+int(el.dataset.d),-20,20);renderDialog();},
   itSave(){captureItem();const d=ui.dlg;const it=S.inventory.find(x=>x.id===d.id);const name=d.name.trim()||'Objet';if(it){it.name=name;it.note=d.note.trim();it.mods=d.mods;}closeDlg();commit();},
@@ -2229,6 +2250,8 @@ const A={
   askRestore(el){const sv=S.saves.find(x=>x.id===el.dataset.id);if(!sv)return;openDlg({kind:'confirm',title:'Restaurer ?',text:`Billy, le sac et le paragraphe reviennent à « ${esc(sv.name)} » (${esc(sv.details||'')}). Les notes restent telles quelles.`,ok:'Restaurer',act:'restore',arg:sv.id});},
   saveDelete(el){const sv=S.saves.find(x=>x.id===el.dataset.id);if(!sv)return;openDlg({kind:'confirm',title:'Supprimer la sauvegarde ?',text:`« ${esc(sv.name)} » sera effacée.`,ok:'Supprimer',act:'delSave',arg:sv.id});},
   exportOpen(){openDlg({kind:'export'});},
+  applyCat(el){const it=S.inventory.find(x=>x.id===el.dataset.id);const e=it&&catMatch(it.name);if(!e)return;it.name=e.n;it.mods=clone(e.m||{});commit();},
+  installItem(el){const it=S.inventory.find(x=>x.id===el.dataset.id);const v=it&&installedOf(catMatch(it.name));if(!v)return;it.name=v.n;it.mods=clone(v.m||{});commit();},
   toggleEvolved(){S.billy.evolved=!S.billy.evolved;commit();},
   twoHand(){S.billy.twoHand=!S.billy.twoHand;commit();},
   rerollAgain(){
